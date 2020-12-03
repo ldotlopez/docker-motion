@@ -5,6 +5,6 @@ RUN apt-get update && \
 RUN mkdir /data
 
 COPY entrypoint.sh /entrypoint.sh
-COPY motion.conf /config/motion.conf
+COPY motion.conf /conf/motion.conf
 
 ENTRYPOINT ["/entrypoint.sh"]

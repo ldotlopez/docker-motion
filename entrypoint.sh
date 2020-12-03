@@ -1,29 +1,45 @@
 #!/bin/bash
 
-TMPD="$(mktemp -d)"
-cp /config/motion.conf "$TMPD/motion.conf"
+generate_override_config() {
+	while IFS= read -r -d $'\0' PAIR; do
+		# Check only for MOTION_ envvars
+		[[ $PAIR == MOTION_* ]] || continue
 
-while IFS= read -r -d $'\0' PAIR; do
-	# Check only for MOTION_ envvars
-	[[ $PAIR == MOTION_* ]] || continue
+		# Do ONE split on PAIR
+		IFS=$'\n' read -d "" -ra PARTS <<<"${PAIR/=/$'\n'}"
+		KEY="${PARTS[0]}"
+		VALUE="${PARTS[1]}"
 
-	# Do ONE split on PAIR
-	IFS=$'\n' read -d "" -ra PARTS <<<"${PAIR/=/$'\n'}"
-	KEY="${PARTS[0]}"
-	VALUE="${PARTS[1]}"
+		# Strip motion prefix
+		KEY="${KEY#MOTION_}"
 
-	# Strip motion prefix
-	KEY="${KEY#MOTION_}"
+		# Lowercase KEY
+		KEY="${KEY,,}"
 
-	# Lowercase KEY
-	KEY="${KEY,,}"
+		printf "[docker]: '%s' => '%s'\n" "$KEY" "$VALUE" >&2
+		printf "%s %s\n" "$KEY" "$VALUE"
+	done < <(cat /proc/self/environ)
+}
 
-	printf "Setting motion parameter '%s' => '%s'\n" "$KEY" "$VALUE"
-	printf "%s %s\n" "$KEY" "$VALUE" >>"$TMPD/motion.conf"
+generate_mqtt_config() {
+	[[ -z "$MQTT_PREFIX" ]] && return
 
-	# sed -E "s|^$KEY\s+.*|$KEY $VALUE|" \
-	# 	>"$TMPD/motion.conf.tmp" <"$TMPD/motion.conf" &&
-	# 	mv "$TMPD/motion.conf.tmp" "$TMPD/motion.conf"
-done < <(cat /proc/self/environ)
+	MQTT_HOST="${MQTT_HOST:-localhost}"
+	MQTT_PREFIX="${MQTT_PREFIX%%/}"
+	printf "[docker]: Generation conf for 'mqtt://%s/%s'\n" "$MQTT_HOST" "$MQTT_PREFIX" >&2
+	cat <<-EOF
+		on_event_start  /usr/bin/mosquitto_pub -h "$MQTT_HOST" -t "$MQTT_PREFIX/motion"    -m on
+		on_event_end    /usr/bin/mosquitto_pub -h "$MQTT_HOST" -t "$MQTT_PREFIX/motion"    -m off
+		on_camera_lost  /usr/bin/mosquitto_pub -h "$MQTT_HOST" -t "$MQTT_PREFIX/available" -m off
+		on_camera_found /usr/bin/mosquitto_pub -h "$MQTT_HOST" -t "$MQTT_PREFIX/available" -m on
+	EOF
+}
 
-exec /usr/bin/tini -s /usr/bin/motion -- -c "$TMPD/motion.conf"
+TMPF="$(mktemp)"
+(
+	cat /conf/motion.conf
+	generate_override_config
+	generate_mqtt_config
+) >"$TMPF"
+
+exec /usr/bin/tini -s /usr/bin/motion -- -c "$TMPF"
