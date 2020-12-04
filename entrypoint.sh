@@ -42,13 +42,13 @@ TMPF="$(mktemp)"
 	generate_mqtt_config
 ) >"$TMPF" && mv "$TMPF" /conf/motion.conf
 
-PUID=${PUID:-0}
+PGID=${PGID:-0}
 [[ "$PGID" != 0 ]] &&
 	addgroup \
 		--gid "$PGID" \
 		abc
 
-PGID=${PGID:-0}
+PUID=${PUID:-0}
 [[ "$PUID" != 0 ]] &&
 	adduser \
 		--uid "$PUID" \
